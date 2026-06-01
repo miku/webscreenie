@@ -38,6 +38,10 @@ type flags struct {
 
 var f flags
 
+// version is set at build time via -ldflags, e.g.
+// -X github.com/miku/webscreenie/cmd.version=1.2.3
+var version = "dev"
+
 var rootCmd = &cobra.Command{
 	Use:   "webscreenie [flags] <url|file|->",
 	Short: "Capture a screenshot of a webpage from the command line",
@@ -46,6 +50,7 @@ var rootCmd = &cobra.Command{
 The input may be a URL, a local HTML file, or HTML read from stdin ("-").
 By default a high-fidelity, full-viewport PNG is written to
 webscreenie-YYYYMMDDHHMMSS.png in the current directory.`,
+	Version:      version,
 	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
 	RunE:         run,
