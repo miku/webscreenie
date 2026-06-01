@@ -3,10 +3,12 @@
 Create a webpage screenshot from the command line.
 
 ```
-$ webscreenie -o out.png http://example.com
+$ webscreenie -o out.png http://scholar.archive.org
 ```
 
-By default the full viewport is captured at a 2× scale factor through a
+![](static/webscreenie-example.png)
+
+By default the full viewport is captured at a 2x scale factor through a
 headless Chrome browser, producing a high-fidelity PNG. This is a small,
 idiomatic Go port of [sindresorhus/capture-website-cli][cw], using
 [chromedp][chromedp] to drive Chrome over the DevTools Protocol and
