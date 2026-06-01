@@ -81,15 +81,9 @@ Two complementary approaches:
   downloaded on first use. Refresh it with `--update-filter-list`, or point at
   a different list with `--filter-list-url`. Running `--update-filter-list`
   with no input just refreshes the cache and exits.
-- **Aggressive** — `--aggressive` adds DOM heuristics for banners the filter
-  list misses: it hides fixed/sticky overlays that look like cookie/consent
-  banners (by id, class, ARIA role or visible text), removes full-screen
-  backdrops, and lifts any scroll-lock. It only acts on overlay-positioned
-  elements carrying a cookie/consent signal, so a plain fixed header is left
-  alone — but it is a heuristic and can occasionally hide a legitimate element.
-  Combine it with `--hide-cookie-banners` for the widest coverage.
 
 [fb]: https://secure.fanboy.co.nz/fanboy-cookiemonster.txt
+
 
 ## Options
 
