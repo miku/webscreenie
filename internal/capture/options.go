@@ -42,6 +42,22 @@ type Options struct {
 	// present (and visible) before capturing.
 	WaitForElement string
 
+	// HideSelectors are CSS selectors whose matching elements are hidden
+	// (display:none) before capturing. Used for dismissing cookie banners and
+	// other overlays.
+	HideSelectors []string
+
+	// ClickSelectors are CSS selectors whose first matching element is clicked
+	// before capturing (e.g. an "Accept cookies" button). Missing or invalid
+	// selectors are ignored.
+	ClickSelectors []string
+
+	// Aggressive enables heuristic banner removal: fixed/sticky overlays that
+	// look like cookie/consent banners are hidden, full-screen backdrops are
+	// removed, and any scroll-lock is lifted. More effective but more fragile
+	// than the filter list, and may occasionally hide legitimate elements.
+	Aggressive bool
+
 	// Timeout is the maximum time to wait for the page to load. Zero disables
 	// the timeout.
 	Timeout time.Duration

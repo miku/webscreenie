@@ -4,6 +4,7 @@ package capture
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/url"
@@ -109,6 +110,25 @@ func buildTasks(navURL string, opts Options, buf *[]byte) chromedp.Tasks {
 		tasks = append(tasks, chromedp.Sleep(opts.Delay))
 	}
 
+	// Dismiss overlays (cookie banners etc.) before the capture.
+	dismissed := false
+	if len(opts.ClickSelectors) > 0 {
+		tasks = append(tasks, clickElements(opts.ClickSelectors))
+		dismissed = true
+	}
+	if len(opts.HideSelectors) > 0 {
+		tasks = append(tasks, hideElements(opts.HideSelectors))
+		dismissed = true
+	}
+	if opts.Aggressive {
+		tasks = append(tasks, aggressiveDismiss())
+		dismissed = true
+	}
+	if dismissed {
+		// Give the page a moment to reflow after dismissals.
+		tasks = append(tasks, chromedp.Sleep(200*time.Millisecond))
+	}
+
 	switch {
 	case opts.Element != "":
 		tasks = append(tasks, chromedp.WaitVisible(opts.Element, chromedp.ByQuery))
@@ -132,6 +152,109 @@ func viewportScreenshot(opts Options, buf *[]byte) chromedp.Action {
 			WithQuality(qualityFor(opts)).
 			Do(ctx)
 		return err
+	})
+}
+
+// hideElements injects a stylesheet that hides every matching selector. Each
+// selector becomes its own rule so that a single invalid selector (EasyList
+// occasionally contains them) cannot void the others.
+func hideElements(selectors []string) chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		var css strings.Builder
+		for _, sel := range selectors {
+			sel = strings.TrimSpace(sel)
+			if sel == "" {
+				continue
+			}
+			css.WriteString(sel)
+			css.WriteString("{display:none !important;visibility:hidden !important}\n")
+		}
+		quoted, err := json.Marshal(css.String())
+		if err != nil {
+			return err
+		}
+		expr := fmt.Sprintf(`(function(){try{var s=document.createElement('style');`+
+			`s.textContent=%s;document.documentElement.appendChild(s);}catch(e){}})()`, quoted)
+		return chromedp.Evaluate(expr, nil).Do(ctx)
+	})
+}
+
+// clickElements clicks the first element matching each selector, ignoring
+// selectors that match nothing or are syntactically invalid.
+func clickElements(selectors []string) chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		for _, sel := range selectors {
+			sel = strings.TrimSpace(sel)
+			if sel == "" {
+				continue
+			}
+			quoted, err := json.Marshal(sel)
+			if err != nil {
+				return err
+			}
+			expr := fmt.Sprintf(`(function(){try{var el=document.querySelector(%s);`+
+				`if(el){el.click();return true;}}catch(e){}return false;})()`, quoted)
+			if err := chromedp.Evaluate(expr, nil).Do(ctx); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// aggressiveScript is a best-effort, heuristic banner remover. It hides
+// fixed/sticky overlays that look like cookie/consent banners (by id, class,
+// ARIA role or visible text), removes full-screen translucent backdrops, and
+// lifts any scroll-lock the banner imposed on the document. It is deliberately
+// conservative about what counts as a banner (overlay positioning plus a
+// cookie/consent signal) to limit false positives, but can still occasionally
+// hide a legitimate fixed element.
+const aggressiveScript = `(() => {
+  try {
+    const kw = /(cookie|consent|gdpr|ccpa|\bprivacy\b|datenschutz|einwillig|zustimm|tracking|interest[- ]based|we use|uses cookies|akzeptier)/i;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const hide = el => el.style.setProperty('display', 'none', 'important');
+    const cls = el => (typeof el.className === 'string' ? el.className : (el.getAttribute && el.getAttribute('class')) || '');
+
+    const nodes = document.body ? document.body.querySelectorAll('*') : [];
+    for (const el of nodes) {
+      const cs = getComputedStyle(el);
+      if (cs.position !== 'fixed' && cs.position !== 'sticky') continue;
+      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 1 || r.height < 1) continue;
+
+      const coversWidth = r.width >= vw * 0.6;
+      const fullScreen = r.width >= vw * 0.9 && r.height >= vh * 0.9;
+      const text = (el.innerText || '').slice(0, 600);
+      const role = (el.getAttribute && el.getAttribute('role')) || '';
+      const looksCookie = kw.test(text) || kw.test(el.id) || kw.test(cls(el));
+
+      // An edge bar or modal that mentions cookies/consent.
+      if (looksCookie && (coversWidth || fullScreen || role === 'dialog')) { hide(el); continue; }
+      // A full-screen backdrop with a background and little text.
+      if (fullScreen && text.trim().length < 40) {
+        const bg = cs.backgroundColor;
+        if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') { hide(el); continue; }
+      }
+    }
+
+    // Restore scrolling a banner may have locked.
+    for (const el of [document.documentElement, document.body]) {
+      if (!el) continue;
+      const cs = getComputedStyle(el);
+      if (cs.overflow === 'hidden' || cs.overflowY === 'hidden') {
+        el.style.setProperty('overflow', 'auto', 'important');
+      }
+      if (cs.position === 'fixed') el.style.setProperty('position', 'static', 'important');
+    }
+  } catch (e) {}
+})()`
+
+// aggressiveDismiss runs aggressiveScript in the page.
+func aggressiveDismiss() chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		return chromedp.Evaluate(aggressiveScript, nil).Do(ctx)
 	})
 }
 

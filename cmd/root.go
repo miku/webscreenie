@@ -5,11 +5,13 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/miku/webscreenie/internal/capture"
+	"github.com/miku/webscreenie/internal/filterlist"
 	"github.com/spf13/cobra"
 )
 
@@ -34,6 +36,13 @@ type flags struct {
 	insecure    bool
 	debug       bool
 	overwrite   bool
+
+	hideElements     []string
+	clickElements    []string
+	hideCookies      bool
+	aggressive       bool
+	filterListURL    string
+	updateFilterList bool
 }
 
 var f flags
@@ -84,9 +93,21 @@ func init() {
 	fl.BoolVar(&f.insecure, "insecure", false, "accept invalid TLS certificates")
 	fl.BoolVar(&f.debug, "debug", false, "show the browser window")
 	fl.BoolVar(&f.overwrite, "overwrite", false, "overwrite the output file if it exists")
+
+	fl.StringArrayVar(&f.hideElements, "hide-element", nil, "hide elements matching this CSS selector (repeatable)")
+	fl.StringArrayVar(&f.clickElements, "click-element", nil, "click the element matching this CSS selector before capture (repeatable)")
+	fl.BoolVar(&f.hideCookies, "hide-cookie-banners", false, "hide cookie-consent banners using a cached EasyList filter list")
+	fl.BoolVar(&f.aggressive, "aggressive", false, "additionally remove banners with DOM heuristics (more effective, more fragile)")
+	fl.StringVar(&f.filterListURL, "filter-list-url", filterlist.DefaultURL, "filter list source for --hide-cookie-banners")
+	fl.BoolVar(&f.updateFilterList, "update-filter-list", false, "re-download the cookie filter list before use (with no input, just updates the cache and exits)")
 }
 
 func run(cmd *cobra.Command, args []string) error {
+	// With --update-filter-list and no input, just refresh the cache and exit.
+	if f.updateFilterList && len(args) == 0 {
+		return updateFilterListOnly(cmd)
+	}
+
 	opts := capture.DefaultOptions()
 	opts.Width = f.width
 	opts.Height = f.height
@@ -102,6 +123,7 @@ func run(cmd *cobra.Command, args []string) error {
 	opts.UserAgent = f.userAgent
 	opts.Insecure = f.insecure
 	opts.Debug = f.debug
+	opts.Aggressive = f.aggressive
 
 	switch strings.ToLower(f.imageType) {
 	case "png":
@@ -123,6 +145,18 @@ func run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	opts.Input = input
+
+	opts.HideSelectors = append([]string{}, f.hideElements...)
+	opts.ClickSelectors = append([]string{}, f.clickElements...)
+
+	if f.hideCookies || f.updateFilterList {
+		selectors, err := cookieBannerSelectors(cmd, input)
+		if err != nil {
+			// Non-fatal: still take the screenshot, just without banner hiding.
+			fmt.Fprintln(os.Stderr, "webscreenie: warning:", err)
+		}
+		opts.HideSelectors = append(opts.HideSelectors, selectors...)
+	}
 
 	output := f.output
 	if output == "" {
@@ -180,4 +214,42 @@ func defaultOutputName(t capture.ImageType) string {
 		ext = "jpg"
 	}
 	return fmt.Sprintf("webscreenie-%s.%s", time.Now().Format("20060102150405"), ext)
+}
+
+// cookieBannerSelectors loads the filter list (downloading/refreshing the
+// cache as needed) and returns the selectors applicable to the input's host.
+func cookieBannerSelectors(cmd *cobra.Command, input string) ([]string, error) {
+	fl, err := filterlist.Load(cmd.Context(), filterlist.Options{
+		URL:    f.filterListURL,
+		Update: f.updateFilterList,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("loading cookie filter list: %w", err)
+	}
+	return fl.SelectorsFor(inputHost(input)), nil
+}
+
+// updateFilterListOnly refreshes the cached filter list and reports where it
+// was written, without taking a screenshot.
+func updateFilterListOnly(cmd *cobra.Command) error {
+	fl, err := filterlist.Load(cmd.Context(), filterlist.Options{
+		URL:    f.filterListURL,
+		Update: true,
+	})
+	if err != nil {
+		return err
+	}
+	path, _ := filterlist.CachePath(f.filterListURL)
+	generic, domain := fl.Len()
+	fmt.Fprintf(os.Stderr, "updated %s (%d generic, %d domain rules)\n", path, generic, domain)
+	return nil
+}
+
+// inputHost returns the host of input when it is an http(s) URL, or "" for
+// files and inline HTML (where only generic filter rules apply).
+func inputHost(input string) string {
+	if u, err := url.Parse(input); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
+		return u.Hostname()
+	}
+	return ""
 }

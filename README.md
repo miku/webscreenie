@@ -56,7 +56,40 @@ webscreenie --full-page --dark-mode -o full.png https://example.com
 
 # Just one element, as JPEG
 webscreenie --element '.main' -t jpeg --quality 80 -o main.jpg https://example.com
+
+# Dismiss a cookie banner automatically, then capture
+webscreenie --hide-cookie-banners -o shot.png https://example.com
+
+# Or dismiss a specific banner manually
+webscreenie --hide-element '#onetrust-banner-sdk' -o shot.png https://example.com
+webscreenie --click-element 'button#accept-all' -o shot.png https://example.com
 ```
+
+## Dismissing cookie banners
+
+Two complementary approaches:
+
+- **Manual** — `--hide-element <selector>` hides matching elements
+  (`display:none`), and `--click-element <selector>` clicks the first match
+  (e.g. an "Accept" button). Both are repeatable and applied after load and
+  any `--delay`. Predictable, per-site, no network needed.
+- **Automatic** — `--hide-cookie-banners` hides banners using a community
+  filter list ([Fanboy's Cookie List][fb] by default). Only the cosmetic
+  element-hiding rules are used; the banner is *hidden*, not consented to. The
+  list is cached under your XDG cache directory
+  (`$XDG_CACHE_HOME/webscreenie/`, i.e. `~/.cache/webscreenie/` on Linux) and
+  downloaded on first use. Refresh it with `--update-filter-list`, or point at
+  a different list with `--filter-list-url`. Running `--update-filter-list`
+  with no input just refreshes the cache and exits.
+- **Aggressive** — `--aggressive` adds DOM heuristics for banners the filter
+  list misses: it hides fixed/sticky overlays that look like cookie/consent
+  banners (by id, class, ARIA role or visible text), removes full-screen
+  backdrops, and lifts any scroll-lock. It only acts on overlay-positioned
+  elements carrying a cookie/consent signal, so a plain fixed header is left
+  alone — but it is a heuristic and can occasionally hide a legitimate element.
+  Combine it with `--hide-cookie-banners` for the widest coverage.
+
+[fb]: https://secure.fanboy.co.nz/fanboy-cookiemonster.txt
 
 ## Options
 
@@ -80,19 +113,26 @@ webscreenie --element '.main' -t jpeg --quality 80 -o main.jpg https://example.c
 | `--insecure`          | false   | Accept invalid TLS certificates                     |
 | `--debug`             | false   | Show the browser window                             |
 | `--overwrite`         | false   | Overwrite the output file if it exists              |
+| `--hide-element`      |         | Hide elements matching this selector (repeatable)   |
+| `--click-element`     |         | Click element matching this selector (repeatable)   |
+| `--hide-cookie-banners` | false | Hide cookie banners via a cached filter list        |
+| `--aggressive`        | false   | Also remove banners with DOM heuristics             |
+| `--filter-list-url`   | Fanboy  | Filter list source for `--hide-cookie-banners`      |
+| `--update-filter-list`| false   | Re-download the filter list before use              |
 
 ## Project layout
 
 ```
-main.go                      entry point
-cmd/root.go                  cobra command, flag parsing, I/O
-internal/capture/options.go  Options struct and defaults
-internal/capture/capture.go  chromedp capture logic
+main.go                         entry point
+cmd/root.go                     cobra command, flag parsing, I/O
+internal/capture/options.go     Options struct and defaults
+internal/capture/capture.go     chromedp capture logic
+internal/filterlist/...         cookie filter-list download, cache and parse
 ```
 
 ## Status
 
 This is an early sketch covering the most-used options. The reference CLI has
-several more (device emulation, ad blocking, cookies, PDF output, element
-clipping/insets, script/style injection); these are intentionally left out for
-now and are straightforward follow-ups against the `internal/capture` package.
+several more (device emulation, PDF output, element clipping/insets,
+script/style injection); these are intentionally left out for now and are
+straightforward follow-ups against the `internal/capture` package.
