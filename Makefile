@@ -1,6 +1,6 @@
 SHELL = /bin/bash
 TARGET = webscreenie
-VERSION = 0.1.0
+VERSION = 0.1.1
 CGO_ENABLED = 0
 GO_FILES := $(shell find . -name "*.go" -type f)
 LDFLAGS := -X github.com/miku/webscreenie/cmd.version=$(VERSION)
