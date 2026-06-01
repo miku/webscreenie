@@ -137,7 +137,7 @@ func run(cmd *cobra.Command, args []string) error {
 	if err := os.WriteFile(output, buf, 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", output, err)
 	}
-	fmt.Fprintln(os.Stderr, "wrote", output)
+	fmt.Fprintf(os.Stderr, "wrote %s (%d bytes)\n", output, len(buf))
 	return nil
 }
 
